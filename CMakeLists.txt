@@ -4,6 +4,37 @@ project(qamqp VERSION 0.6.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(Git QUIET)
+
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --long --dirty --tags
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_VERSION
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --abbrev=0
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_TAG
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    if(GIT_TAG)
+        string(REGEX REPLACE "^v" "" VERSION ${GIT_TAG})
+    else()
+        set(VERSION ${PROJECT_VERSION})
+    endif()
+else()
+    set(GIT_VERSION "unknown")
+    set(VERSION ${PROJECT_VERSION})
+endif()
+
+add_compile_definitions(GIT_VERSION="${GIT_VERSION}")
+
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 
 find_package(Qt6 COMPONENTS Core Network REQUIRED)
@@ -31,7 +62,7 @@ install(EXPORT qamqpTargets
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/qamqpConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION}
+    VERSION ${VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
