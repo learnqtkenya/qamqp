@@ -21,8 +21,20 @@ set(QAMQP_SOURCES
     qamqptable.cpp
 )
 
-add_library(qamqp ${QAMQP_HEADERS} ${QAMQP_SOURCES})
+if(MSVC)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static library for MSVC" FORCE)
+endif()
+
+add_library(qamqp STATIC ${QAMQP_HEADERS} ${QAMQP_SOURCES})
 add_library(qamqp::qamqp ALIAS qamqp)
+
+set_target_properties(qamqp PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    EXPORT_NAME qamqp
+    OUTPUT_NAME qamqp
+    DEBUG_POSTFIX d
+)
 
 target_include_directories(qamqp
     PUBLIC
