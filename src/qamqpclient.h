@@ -83,6 +83,14 @@ public:
     int writeTimeout() const;
     void setWriteTimeout(int msecs);
 
+    // Tunes the per-connection TCP keepalive on Linux via TCP_KEEPIDLE,
+    // TCP_KEEPINTVL and TCP_KEEPCNT. Default system keepalive is too slow
+    // for fast detection on flaky networks (Linux defaults: 7200/75/9 =
+    // ~2 hours). Pass zero for any parameter to keep the system default
+    // for that field. Settings are applied each time the socket connects;
+    // safe to call before connectToHost. No-op on non-Linux platforms.
+    void setTcpKeepalive(int idleSec, int intervalSec, int probeCount);
+
     void addCustomProperty(const QString &name, const QString &value);
     QString customProperty(const QString &name) const;
 

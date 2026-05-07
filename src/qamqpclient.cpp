@@ -5,6 +5,12 @@
 #include <QSslSocket>
 #include <QtEndian>
 
+#ifdef Q_OS_LINUX
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#endif
+
 #include "qamqpglobal.h"
 #include "qamqpexchange.h"
 #include "qamqpexchange_p.h"
@@ -26,6 +32,9 @@ QAmqpClientPrivate::QAmqpClientPrivate(QAmqpClient *q)
       useSsl(false),
       socket(0),
       userInitiatedClose(false),
+      tcpKeepaliveIdleSec(0),
+      tcpKeepaliveIntervalSec(0),
+      tcpKeepaliveProbeCount(0),
       closed(false),
       connected(false),
       channelMax(0),
@@ -184,6 +193,26 @@ void QAmqpClientPrivate::_q_socketConnected()
         timeout = 0;
     userInitiatedClose = false;
     lastFrameReceivedTimer.start();
+
+#ifdef Q_OS_LINUX
+    // Tune TCP keepalive on the freshly-connected socket. Qt only exposes
+    // SO_KEEPALIVE on/off via setSocketOption — fast detection on flaky
+    // networks (cellular CGNAT idle drop) needs TCP_KEEPIDLE/INTVL/CNT
+    // which are Linux-specific. Linux defaults are 7200/75/9, useless here.
+    const int fd = static_cast<int>(socket->socketDescriptor());
+    if (fd >= 0) {
+        if (tcpKeepaliveIdleSec > 0)
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
+                    &tcpKeepaliveIdleSec, sizeof(tcpKeepaliveIdleSec));
+        if (tcpKeepaliveIntervalSec > 0)
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
+                    &tcpKeepaliveIntervalSec, sizeof(tcpKeepaliveIntervalSec));
+        if (tcpKeepaliveProbeCount > 0)
+            ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
+                    &tcpKeepaliveProbeCount, sizeof(tcpKeepaliveProbeCount));
+    }
+#endif
+
     char header[8] = {'A', 'M', 'Q', 'P', 0, 0, 9, 1};
     socket->write(header, 8);
 }
@@ -897,6 +926,14 @@ int QAmqpClient::writeTimeout() const
 void QAmqpClient::setWriteTimeout(int msecs)
 {
     QAmqpFrame::setWriteTimeout(msecs);
+}
+
+void QAmqpClient::setTcpKeepalive(int idleSec, int intervalSec, int probeCount)
+{
+    Q_D(QAmqpClient);
+    d->tcpKeepaliveIdleSec = idleSec;
+    d->tcpKeepaliveIntervalSec = intervalSec;
+    d->tcpKeepaliveProbeCount = probeCount;
 }
 
 void QAmqpClient::addCustomProperty(const QString &name, const QString &value)

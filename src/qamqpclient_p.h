@@ -92,6 +92,9 @@ public:
     QSslSocket *socket;
     bool userInitiatedClose;
     QElapsedTimer lastFrameReceivedTimer;
+    int tcpKeepaliveIdleSec;
+    int tcpKeepaliveIntervalSec;
+    int tcpKeepaliveProbeCount;
     QHash<quint16, QList<QAmqpMethodFrameHandler*> > methodHandlersByChannel;
     QHash<quint16, QList<QAmqpContentFrameHandler*> > contentHandlerByChannel;
     QHash<quint16, QList<QAmqpContentBodyFrameHandler*> > bodyHandlersByChannel;
