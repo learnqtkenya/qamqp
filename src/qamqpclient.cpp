@@ -208,8 +208,10 @@ void QAmqpClientPrivate::_q_socketConnected()
 {
     if (reconnectTimer)
         reconnectTimer->stop();
-    if (connectTimeoutTimer)
-        connectTimeoutTimer->stop();
+    // connectTimeoutTimer intentionally kept running until openOk — between
+    // TCP-connected and AMQP openOk no other watchdog covers us (heartbeatTimer
+    // only starts after tune), so a broker that accepts the TCP connection but
+    // never sends connection.start would otherwise hang us forever.
     if(reconnectFixedTimeout == false)
         timeout = 0;
     userInitiatedClose = false;
@@ -268,8 +270,10 @@ void QAmqpClientPrivate::_q_socketDisconnected()
 void QAmqpClientPrivate::_q_connectTimeout()
 {
     Q_Q(QAmqpClient);
+    if (connected)
+        return;
     const QAbstractSocket::SocketState st = socket->state();
-    if (st != QAbstractSocket::HostLookupState && st != QAbstractSocket::ConnectingState)
+    if (st == QAbstractSocket::UnconnectedState || st == QAbstractSocket::ClosingState)
         return;
     qAmqpDebug() << "connect timeout after" << connectTimeoutMs
                  << "ms in state" << st << "- aborting";
@@ -603,6 +607,8 @@ void QAmqpClientPrivate::openOk(const QAmqpMethodFrame &frame)
     Q_Q(QAmqpClient);
     Q_UNUSED(frame)
     qAmqpDebug("-> connection#openOk()");
+    if (connectTimeoutTimer)
+        connectTimeoutTimer->stop();
     connected = true;
     Q_EMIT q->connected();
 }
