@@ -293,8 +293,8 @@ void QAmqpClientPrivate::_q_connectTimeout()
                 timeout = 250;
             } else {
                 timeout *= 2;
-                if (timeout > 5000)
-                    timeout = 5000;
+                if (timeout > 1500)
+                    timeout = 1500;
             }
         }
         Q_EMIT q->reconnectScheduled(timeout);
@@ -336,8 +336,8 @@ void QAmqpClientPrivate::_q_socketError(QAbstractSocket::SocketError error)
             timeout = 250;
         } else {
             timeout *= 2;
-            if (timeout > 5000)
-                timeout = 5000;
+            if (timeout > 1500)
+                timeout = 1500;
         }
     }
 
