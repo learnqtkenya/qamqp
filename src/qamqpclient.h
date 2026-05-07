@@ -144,6 +144,13 @@ Q_SIGNALS:
     void socketErrorOccurred(QAbstractSocket::SocketError error);
     void socketStateChanged(QAbstractSocket::SocketState state);
     void sslErrors(const QList<QSslError> &errors);
+
+    // Watchdog visibility. qAmqpDebug() output is gated on the QAMQP_DEBUG
+    // env var; these signals expose the same events to consumers as
+    // structured callbacks so journalctl shows the firings unconditionally.
+    void connectTimeoutFired(QAbstractSocket::SocketState atState);
+    void heartbeatWatchdogFired(qint64 elapsedMs, qint64 thresholdMs);
+    void reconnectScheduled(int delayMs);
     
 public Q_SLOTS:
     void ignoreSslErrors(const QList<QSslError> &errors);

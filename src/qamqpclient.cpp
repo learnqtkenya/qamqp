@@ -260,23 +260,47 @@ void QAmqpClientPrivate::_q_socketDisconnected()
         if (timeout <= 0)
             timeout = 250;
         qAmqpDebug() << "unsolicited disconnect, scheduling reconnect after" << timeout << "ms";
+        Q_EMIT q->reconnectScheduled(timeout);
         reconnectTimer->start(timeout);
     }
 }
 
 void QAmqpClientPrivate::_q_connectTimeout()
 {
+    Q_Q(QAmqpClient);
     const QAbstractSocket::SocketState st = socket->state();
     if (st != QAbstractSocket::HostLookupState && st != QAbstractSocket::ConnectingState)
         return;
     qAmqpDebug() << "connect timeout after" << connectTimeoutMs
                  << "ms in state" << st << "- aborting";
     errorString = QStringLiteral("connect timeout");
+    Q_EMIT q->connectTimeoutFired(st);
     socket->abort();
+
+    // QAbstractSocket::abort() from HostLookupState/ConnectingState transitions
+    // the socket to UnconnectedState but does NOT emit disconnected() (only
+    // emitted on transitions out of ConnectedState) and does NOT emit
+    // errorOccurred() (no error from Qt's perspective). Without this explicit
+    // arm, the reconnect cascade dies after the first connect-timeout abort
+    // and the client waits forever on a hung DNS lookup.
+    if (autoReconnect && !userInitiatedClose && reconnectTimer) {
+        if (!reconnectFixedTimeout) {
+            if (timeout <= 0) {
+                timeout = 250;
+            } else {
+                timeout *= 2;
+                if (timeout > 5000)
+                    timeout = 5000;
+            }
+        }
+        Q_EMIT q->reconnectScheduled(timeout);
+        reconnectTimer->start(timeout);
+    }
 }
 
 void QAmqpClientPrivate::_q_heartbeat()
 {
+    Q_Q(QAmqpClient);
     // AMQP 0-9-1 heartbeat watchdog: if we haven't received any frame within
     // 2x the negotiated heartbeat interval the peer is considered unreachable
     // (matches the rule the broker applies to us — see RabbitMQ's heartbeats
@@ -286,10 +310,12 @@ void QAmqpClientPrivate::_q_heartbeat()
     // the client believes it is still connected indefinitely.
     if (heartbeatDelay > 0 && lastFrameReceivedTimer.isValid()
             && lastFrameReceivedTimer.hasExpired(qint64(heartbeatDelay) * 2 * 1000)) {
-        qAmqpDebug() << "heartbeat watchdog: no frame received in"
-                     << lastFrameReceivedTimer.elapsed() << "ms (threshold"
-                     << (heartbeatDelay * 2 * 1000) << "ms), aborting socket";
+        const qint64 elapsedMs = lastFrameReceivedTimer.elapsed();
+        const qint64 thresholdMs = qint64(heartbeatDelay) * 2 * 1000;
+        qAmqpDebug() << "heartbeat watchdog: no frame received in" << elapsedMs
+                     << "ms (threshold" << thresholdMs << "ms), aborting socket";
         errorString = QStringLiteral("heartbeat watchdog: peer unreachable");
+        Q_EMIT q->heartbeatWatchdogFired(elapsedMs, thresholdMs);
         socket->abort();
         return;
     }
