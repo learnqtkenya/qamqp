@@ -1,4 +1,5 @@
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QTextStream>
 #include <QStringList>
 #include <QSslSocket>
@@ -182,6 +183,7 @@ void QAmqpClientPrivate::_q_socketConnected()
     if(reconnectFixedTimeout == false)
         timeout = 0;
     userInitiatedClose = false;
+    lastFrameReceivedTimer.start();
     char header[8] = {'A', 'M', 'Q', 'P', 0, 0, 9, 1};
     socket->write(header, 8);
 }
@@ -191,6 +193,7 @@ void QAmqpClientPrivate::_q_socketDisconnected()
     Q_Q(QAmqpClient);
     buffer.clear();
     resetChannelState();
+    lastFrameReceivedTimer.invalidate();
     if (connected)
         connected = false;
     Q_EMIT q->disconnected();
@@ -211,6 +214,23 @@ void QAmqpClientPrivate::_q_socketDisconnected()
 
 void QAmqpClientPrivate::_q_heartbeat()
 {
+    // AMQP 0-9-1 heartbeat watchdog: if we haven't received any frame within
+    // 2x the negotiated heartbeat interval the peer is considered unreachable
+    // (matches the rule the broker applies to us — see RabbitMQ's heartbeats
+    // doc). Tear the socket down; _q_socketDisconnected then arms reconnect.
+    // Without this, a silent TCP half-open (carrier NAT idle drop, broker
+    // host blackholed) is undetectable: outgoing heartbeats just vanish and
+    // the client believes it is still connected indefinitely.
+    if (heartbeatDelay > 0 && lastFrameReceivedTimer.isValid()
+            && lastFrameReceivedTimer.hasExpired(qint64(heartbeatDelay) * 2 * 1000)) {
+        qAmqpDebug() << "heartbeat watchdog: no frame received in"
+                     << lastFrameReceivedTimer.elapsed() << "ms (threshold"
+                     << (heartbeatDelay * 2 * 1000) << "ms), aborting socket";
+        errorString = QStringLiteral("heartbeat watchdog: peer unreachable");
+        socket->abort();
+        return;
+    }
+
     QAmqpHeartbeatFrame frame;
     sendFrame(frame);
 }
@@ -260,7 +280,12 @@ void QAmqpClientPrivate::_q_socketError(QAbstractSocket::SocketError error)
 void QAmqpClientPrivate::_q_readyRead()
 {
     Q_Q(QAmqpClient);
-    
+
+    // Any inbound bytes count as proof of life from the broker — the watchdog
+    // tracks frames-received, not just heartbeats, so heavy traffic naturally
+    // suppresses heartbeat-frame chatter without breaking detection.
+    lastFrameReceivedTimer.start();
+
     while (socket->bytesAvailable() >= QAmqpFrame::HEADER_SIZE) {
         unsigned char headerData[QAmqpFrame::HEADER_SIZE];
         socket->peek((char*)headerData, QAmqpFrame::HEADER_SIZE);

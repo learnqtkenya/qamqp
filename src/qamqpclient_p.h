@@ -5,6 +5,7 @@
 #include <QSharedPointer>
 #include <QPointer>
 #include <QAbstractSocket>
+#include <QElapsedTimer>
 #include <QSslError>
 
 #include "qamqpchannelhash_p.h"
@@ -90,6 +91,7 @@ public:
 
     QSslSocket *socket;
     bool userInitiatedClose;
+    QElapsedTimer lastFrameReceivedTimer;
     QHash<quint16, QList<QAmqpMethodFrameHandler*> > methodHandlersByChannel;
     QHash<quint16, QList<QAmqpContentFrameHandler*> > contentHandlerByChannel;
     QHash<quint16, QList<QAmqpContentBodyFrameHandler*> > bodyHandlersByChannel;
