@@ -102,6 +102,13 @@ public:
     int connectTimeout() const;
     void setConnectTimeout(int msec);
 
+    // Cancels any pending reconnect backoff and attempts a connection
+    // immediately. Auto-invoked when QNetworkInformation reports the
+    // network has become reachable, so a cable plugged back in triggers
+    // recovery in near-zero time rather than waiting out the current
+    // backoff. Safe to call from anywhere; no-op if already connected.
+    void reconnectNow();
+
     void addCustomProperty(const QString &name, const QString &value);
     QString customProperty(const QString &name) const;
 

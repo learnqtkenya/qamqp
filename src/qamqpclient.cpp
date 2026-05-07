@@ -1,5 +1,6 @@
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QNetworkInformation>
 #include <QTextStream>
 #include <QStringList>
 #include <QSslSocket>
@@ -35,7 +36,7 @@ QAmqpClientPrivate::QAmqpClientPrivate(QAmqpClient *q)
       tcpKeepaliveIdleSec(0),
       tcpKeepaliveIntervalSec(0),
       tcpKeepaliveProbeCount(0),
-      connectTimeoutMs(30000),
+      connectTimeoutMs(5000),
       closed(false),
       connected(false),
       channelMax(0),
@@ -63,6 +64,18 @@ void QAmqpClientPrivate::init()
     connectTimeoutTimer = new QTimer(q);
     connectTimeoutTimer->setSingleShot(true);
     QObject::connect(connectTimeoutTimer, SIGNAL(timeout()), q, SLOT(_q_connectTimeout()));
+
+    if (QNetworkInformation::loadDefaultBackend()) {
+        QObject::connect(QNetworkInformation::instance(),
+                &QNetworkInformation::reachabilityChanged, q,
+                [q, this](QNetworkInformation::Reachability r) {
+                    if (r == QNetworkInformation::Reachability::Online && autoReconnect
+                            && !connected && !userInitiatedClose) {
+                        qAmqpDebug() << "network reachable - attempting immediate reconnect";
+                        q->reconnectNow();
+                    }
+                });
+    }
 
     authenticator = QSharedPointer<QAmqpAuthenticator>(
         new QAmqpPlainAuthenticator(QString::fromLatin1(AMQP_LOGIN), QString::fromLatin1(AMQP_PSWD)));
@@ -245,7 +258,7 @@ void QAmqpClientPrivate::_q_socketDisconnected()
     // sets userInitiatedClose so we don't fight the user's intent.
     if (autoReconnect && !userInitiatedClose && reconnectTimer) {
         if (timeout <= 0)
-            timeout = 1000;
+            timeout = 250;
         qAmqpDebug() << "unsolicited disconnect, scheduling reconnect after" << timeout << "ms";
         reconnectTimer->start(timeout);
     }
@@ -290,10 +303,11 @@ void QAmqpClientPrivate::_q_socketError(QAbstractSocket::SocketError error)
     if(reconnectFixedTimeout == false)
     {
         if (timeout <= 0) {
-            timeout = 1000;
+            timeout = 250;
         } else {
-            if (timeout < 120000)
-                timeout *= 5;
+            timeout *= 2;
+            if (timeout > 5000)
+                timeout = 5000;
         }
     }
 
@@ -967,6 +981,19 @@ void QAmqpClient::setConnectTimeout(int msec)
 {
     Q_D(QAmqpClient);
     d->connectTimeoutMs = msec;
+}
+
+void QAmqpClient::reconnectNow()
+{
+    Q_D(QAmqpClient);
+    if (d->connected)
+        return;
+    if (d->reconnectTimer)
+        d->reconnectTimer->stop();
+    if (d->connectTimeoutTimer)
+        d->connectTimeoutTimer->stop();
+    d->timeout = 0;
+    d->_q_connect();
 }
 
 void QAmqpClient::addCustomProperty(const QString &name, const QString &value)
