@@ -24,6 +24,7 @@ QAmqpClientPrivate::QAmqpClientPrivate(QAmqpClient *q)
       connecting(false),
       useSsl(false),
       socket(0),
+      userInitiatedClose(false),
       closed(false),
       connected(false),
       channelMax(0),
@@ -180,6 +181,7 @@ void QAmqpClientPrivate::_q_socketConnected()
         reconnectTimer->stop();
     if(reconnectFixedTimeout == false)
         timeout = 0;
+    userInitiatedClose = false;
     char header[8] = {'A', 'M', 'Q', 'P', 0, 0, 9, 1};
     socket->write(header, 8);
 }
@@ -192,6 +194,19 @@ void QAmqpClientPrivate::_q_socketDisconnected()
     if (connected)
         connected = false;
     Q_EMIT q->disconnected();
+
+    // If the disconnect was unsolicited (broker-initiated AMQP close, server
+    // crash, network drop without socket error), arm reconnect. The
+    // _q_socketError path arms reconnect for socket-level errors; this path
+    // covers the cases where we land in UnconnectedState without an error
+    // signal having fired. A user-initiated close (disconnectFromHost / abort)
+    // sets userInitiatedClose so we don't fight the user's intent.
+    if (autoReconnect && !userInitiatedClose && reconnectTimer) {
+        if (timeout <= 0)
+            timeout = 1000;
+        qAmqpDebug() << "unsolicited disconnect, scheduling reconnect after" << timeout << "ms";
+        reconnectTimer->start(timeout);
+    }
 }
 
 void QAmqpClientPrivate::_q_heartbeat()
@@ -504,15 +519,13 @@ void QAmqpClientPrivate::close(const QAmqpMethodFrame &frame)
         errorString = qPrintable(text);
         Q_EMIT q->error(error);
 
-        // if it was a force disconnect, simulate receiving a closeOk
+        // Force-close broker-initiated kicks (admin shutdown / connection
+        // reset) skip the closeOk handshake — the broker won't read it. The
+        // ensuing socket disconnect is picked up by _q_socketDisconnected,
+        // which arms reconnect when autoReconnect is set.
         if (checkError == QAMQP::ConnectionForcedError) {
-          closeConnection();
-          if (autoReconnect) {
-            qAmqpDebug() << "trying to reconnect after: " << timeout << "ms";
-            QTimer::singleShot(timeout, q, SLOT(_q_connect()));
-          }
-
-          return;
+            closeConnection();
+            return;
         }
     }
 
@@ -947,12 +960,14 @@ void QAmqpClient::connectToHost(const QHostAddress &address, quint16 port)
 void QAmqpClient::disconnectFromHost()
 {
     Q_D(QAmqpClient);
+    d->userInitiatedClose = true;
     d->_q_disconnect();
 }
 
 void QAmqpClient::abort()
 {
     Q_D(QAmqpClient);
+    d->userInitiatedClose = true;
     d->closeConnection();
 }
 

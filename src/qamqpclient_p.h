@@ -89,6 +89,7 @@ public:
     bool useSsl;
 
     QSslSocket *socket;
+    bool userInitiatedClose;
     QHash<quint16, QList<QAmqpMethodFrameHandler*> > methodHandlersByChannel;
     QHash<quint16, QList<QAmqpContentFrameHandler*> > contentHandlerByChannel;
     QHash<quint16, QList<QAmqpContentBodyFrameHandler*> > bodyHandlersByChannel;
