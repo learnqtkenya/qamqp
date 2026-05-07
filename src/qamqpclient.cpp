@@ -35,6 +35,7 @@ QAmqpClientPrivate::QAmqpClientPrivate(QAmqpClient *q)
       tcpKeepaliveIdleSec(0),
       tcpKeepaliveIntervalSec(0),
       tcpKeepaliveProbeCount(0),
+      connectTimeoutMs(30000),
       closed(false),
       connected(false),
       channelMax(0),
@@ -59,6 +60,9 @@ void QAmqpClientPrivate::init()
     reconnectTimer = new QTimer(q);
     reconnectTimer->setSingleShot(true);
     QObject::connect(reconnectTimer, SIGNAL(timeout()), q, SLOT(_q_connect()));
+    connectTimeoutTimer = new QTimer(q);
+    connectTimeoutTimer->setSingleShot(true);
+    QObject::connect(connectTimeoutTimer, SIGNAL(timeout()), q, SLOT(_q_connectTimeout()));
 
     authenticator = QSharedPointer<QAmqpAuthenticator>(
         new QAmqpPlainAuthenticator(QString::fromLatin1(AMQP_LOGIN), QString::fromLatin1(AMQP_PSWD)));
@@ -165,6 +169,8 @@ void QAmqpClientPrivate::_q_connect()
     }
 
     qAmqpDebug() << "connecting to host: " << host << ", port: " << port;
+    if (connectTimeoutTimer && connectTimeoutMs > 0)
+        connectTimeoutTimer->start(connectTimeoutMs);
     if (useSsl)
         socket->connectToHostEncrypted(host, port);
     else
@@ -189,6 +195,8 @@ void QAmqpClientPrivate::_q_socketConnected()
 {
     if (reconnectTimer)
         reconnectTimer->stop();
+    if (connectTimeoutTimer)
+        connectTimeoutTimer->stop();
     if(reconnectFixedTimeout == false)
         timeout = 0;
     userInitiatedClose = false;
@@ -223,6 +231,8 @@ void QAmqpClientPrivate::_q_socketDisconnected()
     buffer.clear();
     resetChannelState();
     lastFrameReceivedTimer.invalidate();
+    if (connectTimeoutTimer)
+        connectTimeoutTimer->stop();
     if (connected)
         connected = false;
     Q_EMIT q->disconnected();
@@ -239,6 +249,17 @@ void QAmqpClientPrivate::_q_socketDisconnected()
         qAmqpDebug() << "unsolicited disconnect, scheduling reconnect after" << timeout << "ms";
         reconnectTimer->start(timeout);
     }
+}
+
+void QAmqpClientPrivate::_q_connectTimeout()
+{
+    const QAbstractSocket::SocketState st = socket->state();
+    if (st != QAbstractSocket::HostLookupState && st != QAbstractSocket::ConnectingState)
+        return;
+    qAmqpDebug() << "connect timeout after" << connectTimeoutMs
+                 << "ms in state" << st << "- aborting";
+    errorString = QStringLiteral("connect timeout");
+    socket->abort();
 }
 
 void QAmqpClientPrivate::_q_heartbeat()
@@ -934,6 +955,18 @@ void QAmqpClient::setTcpKeepalive(int idleSec, int intervalSec, int probeCount)
     d->tcpKeepaliveIdleSec = idleSec;
     d->tcpKeepaliveIntervalSec = intervalSec;
     d->tcpKeepaliveProbeCount = probeCount;
+}
+
+int QAmqpClient::connectTimeout() const
+{
+    Q_D(const QAmqpClient);
+    return d->connectTimeoutMs;
+}
+
+void QAmqpClient::setConnectTimeout(int msec)
+{
+    Q_D(QAmqpClient);
+    d->connectTimeoutMs = msec;
 }
 
 void QAmqpClient::addCustomProperty(const QString &name, const QString &value)

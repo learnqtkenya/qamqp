@@ -91,6 +91,17 @@ public:
     // safe to call before connectToHost. No-op on non-Linux platforms.
     void setTcpKeepalive(int idleSec, int intervalSec, int probeCount);
 
+    // Bounds the time spent in HostLookupState/ConnectingState before the
+    // attempt is aborted. Without this, a host lookup started while the
+    // network is unreachable can hang indefinitely (Qt's QHostInfo has no
+    // user-controllable timeout) and even survive the network coming back
+    // because the in-flight resolution doesn't restart. Aborting the socket
+    // cancels the lookup and routes through _q_socketDisconnected, which
+    // schedules the next reconnect when autoReconnect is set. Zero
+    // disables. Default 30s.
+    int connectTimeout() const;
+    void setConnectTimeout(int msec);
+
     void addCustomProperty(const QString &name, const QString &value);
     QString customProperty(const QString &name) const;
 
@@ -143,6 +154,7 @@ private:
     Q_PRIVATE_SLOT(d_func(), void _q_readyRead())
     Q_PRIVATE_SLOT(d_func(), void _q_socketError(QAbstractSocket::SocketError error))
     Q_PRIVATE_SLOT(d_func(), void _q_heartbeat())
+    Q_PRIVATE_SLOT(d_func(), void _q_connectTimeout())
     Q_PRIVATE_SLOT(d_func(), void _q_connect())
     Q_PRIVATE_SLOT(d_func(), void _q_disconnect())
 

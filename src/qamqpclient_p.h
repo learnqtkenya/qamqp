@@ -53,6 +53,7 @@ public:
     void _q_readyRead();
     void _q_socketError(QAbstractSocket::SocketError error);
     void _q_heartbeat();
+    void _q_connectTimeout();
     virtual void _q_connect();
     void _q_disconnect();
 
@@ -104,6 +105,8 @@ public:
     bool connected;
     QPointer<QTimer> heartbeatTimer;
     QPointer<QTimer> reconnectTimer;
+    QPointer<QTimer> connectTimeoutTimer;
+    int connectTimeoutMs;
     QAmqpTable customProperties;
     qint16 channelMax;
     qint16 heartbeatDelay;
